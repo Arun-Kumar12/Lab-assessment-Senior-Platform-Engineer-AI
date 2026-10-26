@@ -1,0 +1,10 @@
+[
+  {"order_id": "ORD-1001", "customer_email": "alice@example.com", "item": "Wireless Headphones", "amount": 49.99, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-05T10:15:00Z", "delivered_at": "2026-10-09T14:30:00Z", "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1002", "customer_email": "bob@example.com", "item": "Standing Desk Mat", "amount": 39.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-08-01T09:00:00Z", "delivered_at": "2026-08-06T16:45:00Z", "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1003", "customer_email": "carol@example.com", "item": "Espresso Machine", "amount": 450.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-08T12:00:00Z", "delivered_at": "2026-10-12T11:20:00Z", "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1004", "customer_email": "dan@example.com", "item": "Running Shoes", "amount": 89.5, "currency": "USD", "status": "shipped", "ordered_at": "2026-10-15T08:30:00Z", "delivered_at": null, "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1005", "customer_email": "erin@example.com", "item": "Yoga Mat", "amount": 25.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-06T17:10:00Z", "delivered_at": "2026-10-10T13:00:00Z", "last_synced_at": "2026-10-01T06:00:00Z"},
+  {"order_id": "ORD-1006", "customer_email": "frank@example.com", "item": "Mechanical Keyboard", "amount": 120.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-07T15:00:00Z", "delivered_at": "2026-10-11T10:05:00Z", "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1007", "customer_email": "grace@example.com", "item": "Desk Lamp", "amount": 30.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-10T11:00:00Z", "delivered_at": "2026-10-14T09:40:00Z", "last_synced_at": "2026-10-19T23:00:00Z"},
+  {"order_id": "ORD-1008", "customer_email": "henry@example.com", "item": "Bluetooth Speaker", "amount": 75.0, "currency": "USD", "status": "delivered", "ordered_at": "2026-10-09T13:25:00Z", "delivered_at": "2026-10-13T15:50:00Z", "last_synced_at": "2026-10-19T23:00:00Z"}
+]

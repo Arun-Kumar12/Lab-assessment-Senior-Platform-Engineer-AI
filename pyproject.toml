@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+markers = [
+    "browser: end-to-end browser tests (require playwright chromium)",
+    "live_llm: tests that call a real Ollama model",
+]
+addopts = "-ra --junitxml=reports/junit.xml"
+filterwarnings = ["ignore::DeprecationWarning", "ignore:Using `httpx` with `starlette.testclient`"]

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refund Triage Agent</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --text:#1f2933; --muted:#64748b; --accent:#2563eb; --ok:#16a34a; --warn:#d97706; --bad:#dc2626; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--text); background:var(--bg); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; }
+  header label { color:var(--muted); font-size:13px; }
+  header input { padding:6px 8px; border:1px solid var(--line); border-radius:6px; min-width:160px; }
+  main { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  ul { list-style:none; margin:0; padding:0; }
+  .ticket { padding:10px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+  .ticket:hover { background:#eef2ff; }
+  .ticket.active { border-color:var(--accent); background:#eef2ff; }
+  .ticket small { display:block; color:var(--muted); }
+  .muted { color:var(--muted); }
+  button { padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); cursor:pointer; font-weight:600; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.ok { background:var(--ok); color:#fff; border-color:var(--ok); }
+  button.bad { background:var(--bad); color:#fff; border-color:var(--bad); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; background:#e2e8f0; }
+  .badge.awaiting_approval { background:#fef3c7; color:#92400e; }
+  .badge.completed { background:#dcfce7; color:#166534; }
+  .badge.rejected, .badge.failed { background:#fee2e2; color:#991b1b; }
+  .badge.running, .badge.queued { background:#dbeafe; color:#1e40af; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:10px 0; }
+  pre { background:#0f172a; color:#e2e8f0; padding:10px; border-radius:8px; overflow:auto; font-size:12px; max-height:260px; }
+  .step { display:grid; grid-template-columns:70px 150px 1fr; gap:8px; padding:6px 0; border-top:1px solid var(--line); font-size:13px; }
+  .step .err { color:var(--bad); }
+  textarea { width:100%; min-height:60px; border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; }
+  .proposal { border-left:4px solid var(--warn); padding-left:12px; margin-top:12px; }
+  .proposal.approve_refund { border-color:var(--ok); }
+  .proposal.deny_refund { border-color:var(--bad); }
+  .alert { padding:10px; border-radius:8px; background:#fee2e2; color:#991b1b; margin-top:10px; }
+  @media (max-width: 800px) { main { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Refund Triage Agent</h1>
+  <div>
+    <label>API key <input id="api-key" data-testid="api-key" value="operator-key"></label>
+    <span id="health" class="muted" data-testid="health"></span>
+  </div>
+</header>
+<main>
+  <section class="card">
+    <h2 style="margin-top:0;font-size:15px">Open tickets</h2>
+    <ul id="tickets" data-testid="ticket-list"></ul>
+  </section>
+  <section class="card" id="detail">
+    <p class="muted">Select a ticket to begin.</p>
+  </section>
+</main>
+<script>
+const state = { tickets: [], ticket: null, run: null, timer: null };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json", "X-API-Key": $("api-key").value, ...(options.headers || {}) } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail ? (typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)) : `HTTP ${res.status}`);
+  return body;
+}
+
+async function loadHealth() {
+  try {
+    const h = await fetch("/health").then(r => r.json());
+    $("health").textContent = `${h.llm.provider}/${h.llm.model} ${h.llm.reachable ? "reachable" : "unreachable"}`;
+  } catch { $("health").textContent = "health unavailable"; }
+}
+
+async function loadTickets() {
+  state.tickets = await api("/api/tickets");
+  $("tickets").innerHTML = state.tickets.map(t => `
+    <li class="ticket ${state.ticket?.ticket_id === t.ticket_id ? "active" : ""}" data-testid="ticket-${t.ticket_id}" onclick="selectTicket('${t.ticket_id}')">
+      <strong>${esc(t.ticket_id)}</strong> ${esc(t.subject)}
+      <small>${esc(t.customer_email)} · ${esc(t.order_reference)}${t.amount_display ? " · " + esc(t.amount_display) : ""}</small>
+    </li>`).join("");
+}
+
+async function selectTicket(id) {
+  state.ticket = state.tickets.find(t => t.ticket_id === id);
+  state.run = null;
+  clearInterval(state.timer);
+  const runs = await api(`/api/runs?ticket_id=${id}`);
+  state.run = runs[0] || null;
+  await loadTickets();
+  render();
+  if (state.run && ["queued", "running"].includes(state.run.status)) poll();
+}
+
+async function startRun() {
+  $("run-button").disabled = true;
+  try {
+    state.run = await api(`/api/tickets/${state.ticket.ticket_id}/runs`, { method: "POST" });
+    render();
+    poll();
+  } catch (e) { showError(e.message); $("run-button").disabled = false; }
+}
+
+function poll() {
+  clearInterval(state.timer);
+  state.timer = setInterval(async () => {
+    try {
+      state.run = await api(`/api/runs/${state.run.run_id}`);
+      render();
+      if (!["queued", "running"].includes(state.run.status)) clearInterval(state.timer);
+    } catch (e) { clearInterval(state.timer); showError(e.message); }
+  }, 1000);
+}
+
+async function decide(decision) {
+  try {
+    state.run = await api(`/api/runs/${state.run.run_id}/decision`, { method: "POST", body: JSON.stringify({ decision, note: $("note").value || null }) });
+    render();
+  } catch (e) { showError(e.message); }
+}
+
+function showError(msg) {
+  const el = document.createElement("div");
+  el.className = "alert"; el.dataset.testid = "error"; el.textContent = msg;
+  $("detail").appendChild(el);
+}
+
+function render() {
+  const t = state.ticket, r = state.run;
+  if (!t) return;
+  const busy = r && ["queued", "running"].includes(r.status);
+  let html = `
+    <h2 style="margin-top:0;font-size:15px" data-testid="ticket-title">${esc(t.ticket_id)} · ${esc(t.subject)}</h2>
+    <p class="muted">${esc(t.customer_email)} · Order ${esc(t.order_reference)} ${t.order_found ? "· " + esc(t.order_summary) + " · " + esc(t.amount_display) : "· <span class='badge failed'>order not found</span>"}</p>
+    <p>${esc(t.body)}</p>
+    <div class="row">
+      <button id="run-button" class="primary" data-testid="run-button" onclick="startRun()" ${busy ? "disabled" : ""}>${r ? "Run agent again" : "Run agent"}</button>
+      ${r ? `<span class="badge ${esc(r.status)}" data-testid="run-status">${esc(r.status)}</span><span class="muted">run ${esc(r.run_id)} · ${esc(r.provider)}/${esc(r.model)}</span>` : ""}
+    </div>`;
+  if (r?.error) html += `<div class="alert" data-testid="run-error"><strong>${esc(r.error.code)}</strong>: ${esc(r.error.message)}</div>`;
+  if (r?.proposal) {
+    const p = r.proposal;
+    html += `
+      <div class="proposal ${esc(p.recommendation)}" data-testid="proposal">
+        <div class="row"><strong>Proposal:</strong> <span class="badge" data-testid="proposal-recommendation">${esc(p.recommendation)}</span>
+          ${p.overridden ? `<span class="badge failed" data-testid="override">model said ${esc(p.model_recommendation)} · overridden</span>` : ""}
+          ${p.safety_flags.length ? `<span class="badge failed" data-testid="safety-flags">unsafe: ${esc(p.safety_flags.join(", "))}</span>` : ""}
+          ${p.tool_errors.length ? `<span class="badge failed" data-testid="tool-errors">tool errors: ${esc(p.tool_errors.join(", "))}</span>` : ""}
+        </div>
+        <p><strong>Reason:</strong> <span data-testid="proposal-reason">${esc(p.reason)}</span></p>
+        <p><strong>Draft reply:</strong></p><blockquote data-testid="proposal-reply">${esc(p.customer_reply)}</blockquote>
+      </div>`;
+    if (r.status === "awaiting_approval") {
+      html += `
+        <div class="row" style="flex-direction:column;align-items:stretch">
+          <textarea id="note" data-testid="note" placeholder="Operator note (optional)"></textarea>
+          <div class="row">
+            <button class="ok" data-testid="approve-button" onclick="decide('approve')">Approve &amp; execute</button>
+            <button class="bad" data-testid="reject-button" onclick="decide('reject')">Reject</button>
+          </div>
+        </div>`;
+    }
+  }
+  if (r?.decision) html += `<p data-testid="decision"><strong>Operator ${esc(r.decision.decided_by)}:</strong> ${esc(r.decision.decision)} ${r.decision.note ? "· " + esc(r.decision.note) : ""}</p>`;
+  if (r?.actions?.length) html += `<p><strong>Actions executed:</strong></p><pre data-testid="actions">${esc(JSON.stringify(r.actions, null, 2))}</pre>`;
+  if (r?.steps?.length) {
+    html += `<h3 style="font-size:14px">Execution trace</h3><div data-testid="steps">` + r.steps.map(s => `
+      <div class="step">
+        <span class="muted">${esc(s.kind)}</span>
+        <span><strong>${esc(s.name)}</strong><br><small class="muted">${s.duration_ms} ms</small></span>
+        <span>${s.error ? `<span class="err">${esc(s.error.error)}: ${esc(s.error.message)}</span>` : esc(JSON.stringify(s.output ?? s.input ?? "").slice(0, 300))}</span>
+      </div>`).join("") + `</div>`;
+  }
+  $("detail").innerHTML = html;
+}
+
+loadHealth();
+loadTickets();
+$("api-key").addEventListener("change", () => { loadTickets().catch(e => showError(e.message)); });
+</script>
+</body>
+</html>
